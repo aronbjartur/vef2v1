@@ -1,5 +1,8 @@
 # Vefforritun 2 2025, verkefni 1
 
+https://bright-sprite-50866f.netlify.app/dist/  
+
+
 notar "node main.js"  í terminal til að setja upp
 ýtir svo á dist möppuna til að byrja
 
