@@ -2,6 +2,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 const INDEX_PATH = './data/index.json';
+const DIST_DIR = 'dist';
+const CSS_FILENAME = 'styles.css';
 
 /**
  * Les skrá og skilar gögnum eða null.
@@ -27,67 +29,150 @@ async function readJson(filePath) {
   }
 }
 
+// þannig að string er sýnt sem texti
+function hreinsaHTML(str) {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+// 1 svar bara
+function teljaRéttaSvar(spurning) {
+  return spurning.answers.reduce((acc, svar) => acc + (svar.correct ? 1 : 0), 0);
+}
+
+// spurning má 
+function spurningErGild(spurning, htmlFilePath, index) {
+  if (!spurning || typeof spurning !== 'object' || typeof spurning.question !== 'string' || !Array.isArray(spurning.answers) ) {
+    console.error(`Spurning ${index} í ${htmlFilePath} er ógild.`);
+    return false;
+  }
+  for (let [i, svar] of spurning.answers.entries()) {
+    if (!svar || typeof svar !== 'object' ||
+        typeof svar.answer !== 'string' ||
+        typeof svar.correct !== 'boolean') {
+      return false;
+    }
+  }
+  if (teljaRéttaSvar(spurning) !== 1) {
+    return false;
+  }
+  return true;
+}
+
+// htmlFilePath má 
+function vinnsluSpurningar(gögn, htmlFilePath) {
+  if (typeof gögn !== 'object' || gögn === null || typeof gögn.title !== 'string' || !Array.isArray(gögn.questions)) {
+    console.error(`${htmlFilePath} er ógild.`);
+    return [];
+  }
+  return gögn.questions.filter((spurning, i) => spurningErGild(spurning, htmlFilePath, i));
+}
+
+function fáHtmlNafn(htmlFilePath) {
+  return `${path.basename(htmlFilePath, '.json')}.html`;
+}
+
+
+
 /**
  * Skrifa HTML fyrir yfirlit í index.html
  * @param {any} data Gögn til að skrifa
  * @returns {Promise<void>}
  */
-async function writeHtml(data) {
-  const htmlFilePath = 'dist/index.html';
-
-  /*
-  <ul>
-    <li>HTML</li>
-    <li>CSS</li>
-  */
-
-  //let html = '';
-
-  /*
-  for (let i = 0; i < data.length; i++) {
-    html += `<li>${data[i].title}</li>\n`;
-  }
-  */
-
-  /*
-  for (let item of data) {
-    html += `<li>${item.title}</li>\n`;
-  }
-  */
-
-  const html = data.map((item) => `<li>${item.title}</li>`).join('\n');
-
-  // EKKI GOTT HTML!
+// index.html
+async function writeHtml(flokkar) {
+  const tenglar = flokkar
+    .map(flokkur => `<li><a href="${fáHtmlNafn(flokkur.skra)}">${hreinsaHTML(flokkur.title)}</a></li>`)
+    .join('\n');
   const htmlContent = `
 <!doctype html>
-<html>
-  <head>
-    <title>v1</title>
-  </head>
-  <body>
+<html lang="is">
+<head>
+  <meta charset="utf-8">
+  <title>spurningaflokkar</title>
+  <link rel="stylesheet" href="${CSS_FILENAME}">
+</head>
+<body>
+  <header><h1>Spurningaflokkar</h1></header>
+  <main>
+    <p>Veldu spurningaflokk til að svara forritunarspurningum</p>
     <ul>
-      ${html}
+      ${tenglar}
     </ul>
-  </body>
+  </main>
+</body>
 </html>
 `;
-
-await fs.mkdir(path.dirname(htmlFilePath), { recursive: true });
-try {
+  const htmlFilePath = path.join(DIST_DIR, 'index.html');
+  await fs.mkdir(path.dirname(htmlFilePath), { recursive: true });
   await fs.writeFile(htmlFilePath, htmlContent, 'utf8');
-  console.log(`HTML skrifað í ${htmlFilePath}`);
-} catch (error) {
-  console.error(`Villa við að skrifa HTML: ${error.message}`);
-}
+  console.log(`index.html gerð`);
 }
 
-/**
- *
- * @param {unknown} data
- * @returns {any}
- */
-function parseIndexJson(data) {
-  return data;
+// hin html
+async function hinHTML(gögn, indexData) {
+  const spurningar = gögn.questions.map((spurning, i) => {
+    const svörin = spurning.answers
+      .map(svar =>
+        `<li>
+          <label>
+            <input type="radio" name="q${i}" data-correct="${svar.correct}">
+            ${hreinsaHTML(svar.answer)}
+          </label>
+        </li>`
+      ).join('\n');
+    return `
+<div class="spurning" id="spurning-${i}">
+  <p>${hreinsaHTML(spurning.question)}</p>
+  <ul>
+    ${svörin}
+  </ul>
+  <button type="button" onclick="skoðaSvar(${i})">Skoða svar</button>
+  <span id="niðurstaða-${i}"></span>
+</div>
+`;
+  }).join('\n');
+  
+  const htmlContent = `
+<!doctype html>
+<html lang="is">
+<head>
+  <meta charset="utf-8">
+  <title>${hreinsaHTML(indexData.title)}</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header><h1>${hreinsaHTML(gögn.title)}</h1></header>
+  <main>
+    ${spurningar}
+  </main>
+  <footer><p><a href="index.html">Til baka</a></p></footer>
+  <script>
+    function skoðaSvar(i) {
+      const svar = document.querySelector('input[name="q' + i + '"]:checked');
+      const nið = document.getElementById('niðurstaða-' + i);
+      if (!svar) {
+        nið.textContent = "Veldu svar.";
+        return;
+      }
+      nið.textContent = svar.dataset.correct === "true" ? "Rétt!" : "Rangt!";
+    }
+  </script>
+</body>
+</html>
+`;
+const htmlFilePath = path.join(DIST_DIR, fáHtmlNafn(indexData.file));
+  await fs.mkdir(path.dirname(htmlFilePath), { recursive: true });
+  try {
+    await fs.writeFile(htmlFilePath, htmlContent, 'utf8');
+    console.log(`HTML skrifað í ${htmlFilePath}`);
+  } catch (error) {
+    console.error(`Villa við að skrifa HTML: ${error.message}`);
+  }
 }
 
 /**
@@ -97,64 +182,34 @@ function parseIndexJson(data) {
  * 3. Skrifar út HTML
  */
 async function main() {
-  const indexJson = await readJson(INDEX_PATH);
-
-  const indexData = parseIndexJson(indexJson);
-
-  writeHtml(indexData);
-
-  console.log(indexData);
-
-  /*
-  if (!Array.isArray(indexData)) {
-    console.error('index.json is not an array. Check the file format.');
-    return [];
+  const indexData = await readJson(INDEX_PATH);
+  if (!indexData || !Array.isArray(indexData)) {
+    console.error('index.json er ógild');
+    return;
   }
-
-  // Read other JSON files listed in index.json
-  const allData = await Promise.all(
-    indexData.map(async (item) => {
-      const filePath = `./data/${item.file}`;
-      const fileData = await readJson(filePath);
-      return fileData ? { ...item, content: fileData } : null;
-    }),
-  );
-  */
+  const flokkar = [];
+  for (const item of indexData) {
+    if (typeof item.title !== 'string' || typeof item.file !== 'string') {
+      console.error(`villa hér: ${JSON.stringify(item)}`);
+      continue;
+    }
+    const gögn = await readJson(path.join('data', item.file));
+    if (!gögn) {
+      console.error(`Gat ekki lesið ${item.file}`);
+      continue;
+    }
+    const gildarSpurningar = vinnsluSpurningar(gögn, item.file);
+    if (gildarSpurningar.length === 0) {
+      console.error(`Engar gildar spurningar í ${item.file}`);
+      continue;
+    }
+    flokkar.push({ title: item.title, skra: item.file, questions: gildarSpurningar, ...gögn });
+    await hinHTML({ title: gögn.title, questions: gildarSpurningar }, item);
+  }
+  await writeHtml(flokkar);
+  console.log('tilbúið!');
 }
 
 main();
 
-/*
-// Eftirfarandi kóði kom frá ChatGTP eftir að hafa gefið
-// MJÖG einfalt prompt ásamt allri verkefnalýsingu
-async function readAllData() {
-  const indexPath = './data/index.json';
-
-  try {
-    // Read index.json
-    const indexData = await readJSON(indexPath);
-
-    if (!Array.isArray(indexData)) {
-      console.error('index.json is not an array. Check the file format.');
-      return [];
-    }
-
-    // Read other JSON files listed in index.json
-    const allData = await Promise.all(
-      indexData.map(async (item) => {
-        const filePath = `./data/${item.file}`;
-        const fileData = await readJSON(filePath);
-        return fileData ? { ...item, content: fileData } : null;
-      }),
-    );
-
-    return allData.filter(Boolean); // Remove null entries if any file failed to load
-  } catch (error) {
-    console.error('Error reading data files:', error.message);
-    return [];
-  }
-}
-
-
-readAllData().then((data) => console.log(data));
-*/
+export { hreinsaHTML, teljaRéttaSvar };

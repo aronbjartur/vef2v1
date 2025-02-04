@@ -1,1 +1,8 @@
 dist/index.html
+dist/html.html
+dist/css.html
+dist/js.html
+node_modules/
+coverage/
+package-lock.json
+package-lock 2.json
